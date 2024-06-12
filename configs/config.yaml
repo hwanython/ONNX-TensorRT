@@ -2,7 +2,8 @@ net_model: AttentionUnet3D
 torch_model_path: ./work/best.pth
 onnx_model_path: ./work/best.onnx
 trt_model_path: ./work/best.trt
-task: torch2onnx # or onnx2trt or torch2trt
+task: onnx2trt # torch2onnx or onnx2trt or torch2trt
+# only_verify: True
 use_verify: True
 use_fp16: False
 in_ch: 1

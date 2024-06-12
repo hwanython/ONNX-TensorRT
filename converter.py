@@ -52,8 +52,12 @@ if __name__ == '__main__':
     task = config.task
     logging.info(f'Task: {task}')
     try:
+        s = time.time()
+        logging.info(f'Starting the task: {task}')
         TaskFactory(config).run()
+        e = time.time()
         logging.info(f'Finished the task: {task}')
+        logging.info(f'Time elapsed: {e-s} seconds')
     except Exception as e:
         logging.error(f'Error in the task: {task}, {e}')
     

@@ -15,15 +15,19 @@ class TaskFactory:
             model = ModelFactory(self.model, self.num_classes, self.in_ch).setup()
             state_dict = torch.load(self.config.torch_model_path)
             model.load_state_dict(state_dict['state_dict'], strict=True)
-            converter = ModelConverter(model = model, 
+            converter = ModelConverter(torch_model = model, 
                                        input_shape = self._input, 
-                                       output_path = self.config.onnx_model_path,
+                                       onnx_model_path = self.config.onnx_model_path,
                                        use_verify = self.config.use_verify)
             converter.to_onnx()
         elif self.name == 'onnx2trt':
-            model = ModelFactory(self.model, self.num_classes, self.in_ch).get()
-            converter = ModelConverter(model, self.config.input_shape, self.config.output_path)
-            converter.to_onnx()
+
+            converter = ModelConverter(torch_model = self.model, 
+                                       input_shape = self._input, 
+                                       onnx_model_path = self.config.onnx_model_path,
+                                       trt_model_path = self.config.trt_model_path,
+                                       use_verify = self.config.use_verify)
+            converter.to_tensorrt()
             # converter.to_tensorrt()
         elif self.name == 'torch2trt':
             model = ModelFactory(self.config.model).get()
