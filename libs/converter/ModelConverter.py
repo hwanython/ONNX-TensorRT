@@ -7,10 +7,13 @@ sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
 from libs.models.ModelFactory import ModelFactory
 
 class ModelConverter:
-    def __init__(self, model, input_shape, output_path='output'):
-        self.model = model
-        self.input_shape = input_shape
-        self.output_path = output_path
+    def __init__(self, model, input_shape, output_path='output', use_verify=True):
+        self.model = model # PyTorch model with eval mode
+        self.input_shape = input_shape # input shape of the model (ch, cls, H, W, D)
+        self.output_path = output_path # output path of the converted model
+        self.use_verify = use_verify # verify the converted model
+        self.rtol = 1e-02  # fp16은 atol=1e-03 정도로 설정 차후 use_fp16=True로 설정할 경우 수정
+        self.atol = 1e-08
     
     def to_onnx(self):
         dummy_input = torch.randn(*self.input_shape, requires_grad=True)
@@ -27,6 +30,26 @@ class ModelConverter:
                       output_names=['output'],  # 모델의 출력값을 가리키는 이름
                       )
         print(f"Model successfully converted to ONNX format and saved to {onnx_path}")
+
+        if self.use_verify:
+            import onnx
+            import onnxruntime
+            def to_numpy(tensor):
+                return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+            
+            # get torch out
+            torch_out = self.model(dummy_input)
+
+            onnx_model = onnx.load(onnx_path)
+            onnx.checker.check_model(onnx_model)
+
+            ort_session = onnxruntime.InferenceSession(onnx_path)
+            # ONNX 런타임에서 계산된 결과값
+            ort_inputs = {ort_session.get_inputs()[0].name: to_numpy(dummy_input)}
+            ort_outs = ort_session.run(None, ort_inputs)
+
+            # ONNX 런타임과 PyTorch에서 연산된 결과값 비교
+            np.testing.assert_allclose(to_numpy(torch_out), ort_outs[0], rtol=self.rtol, atol=self.atol)
 
     # def to_tensorrt(self, onnx_path='model.onnx', trt_path='model.trt', use_fp16=False):
     #     TRT_LOGGER = trt.Logger(trt.Logger.ERROR)

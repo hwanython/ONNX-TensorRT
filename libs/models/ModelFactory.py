@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 
@@ -24,3 +25,9 @@ class ModelFactory(nn.Module):
             return UNet3D(n_classes=self.num_classes, in_channels=self.in_ch)
         else:
             raise ValueError(f'Model {self.model_name} not found')
+
+    def setup(self):
+        model = self.get().cuda()
+        model.eval()
+        return model
+

@@ -1,0 +1,15 @@
+Project Task: converter
+Loading the config file...
+Task: torch2onnx
+Error in the task: torch2onnx, 
+Not equal to tolerance rtol=0.01, atol=1e-08
+
+Mismatched elements: 35 / 5308416 (0.000659%)
+Max absolute difference: 0.02507019
+Max relative difference: 0.22397202
+ x: array([[[[[-30.961084, -28.600348, -28.860495, ..., -25.355698,
+           -28.997025, -33.227543],
+          [-31.476864, -27.83066 , -27.225449, ..., -21.288336,...
+ y: array([[[[[-30.961208, -28.599945, -28.860237, ..., -25.354702,
+           -28.99645 , -33.227703],
+          [-31.476906, -27.829758, -27.224836, ..., -21.286535,...

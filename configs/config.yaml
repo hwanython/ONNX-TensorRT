@@ -1,0 +1,10 @@
+net_model: AttentionUnet3D
+torch_model_path: ./work/best.pth
+onnx_model_path: ./work/best.onnx
+trt_model_path: ./work/best.trt
+task: torch2onnx # or onnx2trt or torch2trt
+use_verify: True
+use_fp16: False
+in_ch: 1
+num_classes: 1
+input_shape: !!python/tuple [64, 288, 288]
