@@ -59,7 +59,7 @@ if __name__ == '__main__':
         logging.info(f'Finished the task: {task}')
         logging.info(f'Time elapsed: {e-s} seconds')
     except Exception as e:
-        logging.error(f'Error in the task: {task}, {e}')
+        logging.error(f'Message in the task: {task}, {e}')
     
 
 

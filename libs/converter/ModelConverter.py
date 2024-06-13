@@ -27,7 +27,7 @@ class ModelConverter:
         self.trt_model_path = trt_model_path
         self.input_shape = input_shape  # input shape of the model (ch, cls, H, W, D)
         self.use_verify = use_verify  # verify the converted model
-        self.rtol = 1e-02  # fp16은 atol=1e-03 정도로 설정 차후 use_fp16=True로 설정할 경우 수정
+        self.rtol = 1e-02 # fp16은 atol=1e-03 정도로 설정 차후 use_fp16=True로 설정할 경우 수정
         self.atol = 1e-08
 
     def to_onnx(self):
@@ -83,7 +83,7 @@ class ModelConverter:
                 raise RuntimeError('Failed to parse the ONNX model')
 
         config = builder.create_builder_config()
-        config.max_workspace_size = 4096 * (1 << 20)  # 4 GB
+        # config.max_workspace_size = 4096 * (1 << 20)  # 4 GB
 
         # if use_fp16:
         #     config.set_flag(trt.BuilderFlag.FP16)
