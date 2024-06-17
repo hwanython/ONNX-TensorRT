@@ -14,7 +14,7 @@ onnx_model_path: ./work/best.onnx
 trt_model_path: ./work/best.trt
 task: onnx2trt # torch2onnx or onnx2trt or torch2trt
 use_verify: True
-use_fp16: False # TODO: Will be updated
+use_fp16: False 
 in_ch: 1
 num_classes: 1
 input_shape: !!python/tuple [64, 288, 288].
@@ -29,6 +29,8 @@ input_shape: !!python/tuple [64, 288, 288].
 - ONNX Runtime==1.18.0
 - PyCUDA==2022.1+cuda116
 - NumPy==1.23.5
+
+**Must install the dependencies in `whl` folder**
 
 
 ## Get Started
@@ -70,4 +72,3 @@ python converter.py -c path/to/config.yaml
 
 ### Verification
 If `use_verify` is set to `True` in your configuration file, the conversion process will include a verification step. This step ensures that the outputs from the ONNX and TensorRT models are within a specified tolerance of the original PyTorch model.
-

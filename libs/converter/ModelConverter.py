@@ -20,7 +20,7 @@ class HostDeviceMem(object):
         return self.__str__()
 
 class ModelConverter:
-    def __init__(self, torch_model, input_shape, use_verify=True,
+    def __init__(self, torch_model, input_shape, use_verify=True, use_fp16=False,
                  onnx_model_path=None, trt_model_path=None):
         self.model = torch_model  # PyTorch model with eval mode
         self.onnx_model_path = onnx_model_path  # path to save the converted onnx model
@@ -29,6 +29,7 @@ class ModelConverter:
         self.use_verify = use_verify  # verify the converted model
         self.rtol = 1e-02 # fp16은 atol=1e-03 정도로 설정 차후 use_fp16=True로 설정할 경우 수정
         self.atol = 1e-08
+        self.use_fp16 = use_fp16
 
     def to_onnx(self):
         dummy_input = torch.randn(*self.input_shape, requires_grad=False)
@@ -85,8 +86,8 @@ class ModelConverter:
         config = builder.create_builder_config()
         # config.max_workspace_size = 4096 * (1 << 20)  # 4 GB
 
-        # if use_fp16:
-        #     config.set_flag(trt.BuilderFlag.FP16)
+        if self.use_fp16:
+            config.set_flag(trt.BuilderFlag.FP16)
 
         serialized_engine = builder.build_serialized_network(network, config)
 

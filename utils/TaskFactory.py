@@ -18,7 +18,7 @@ class TaskFactory:
             converter = ModelConverter(torch_model = model, 
                                        input_shape = self._input, 
                                        onnx_model_path = self.config.onnx_model_path,
-                                       use_verify = self.config.use_verify)
+                                       use_verify = self.config.use_verify, use_fp16=self.config.use_fp16)
             converter.to_onnx()
         elif self.name == 'onnx2trt':
 
@@ -26,9 +26,10 @@ class TaskFactory:
                                        input_shape = self._input, 
                                        onnx_model_path = self.config.onnx_model_path,
                                        trt_model_path = self.config.trt_model_path,
-                                       use_verify = self.config.use_verify)
+                                       use_verify = self.config.use_verify, use_fp16=self.config.use_fp16)
             converter.to_tensorrt()
             # converter.to_tensorrt()
+            
         elif self.name == 'torch2trt':
             model = ModelFactory(self.config.model).get()
             converter = ModelConverter(model, self.config.input_shape, self.config.output_path)
