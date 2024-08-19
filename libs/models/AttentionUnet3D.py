@@ -2,11 +2,13 @@ from torch.nn import init
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import uuid
+from libs.pruning.gates import virtual_gate
 
 
 class _GridAttentionBlockND(nn.Module):
     def __init__(self, in_channels, gating_channels, inter_channels=None, dimension=3, mode='concatenation',
-                 sub_sample_factor=(2,2,2)):
+                 sub_sample_factor=(2,2,2), gate_flag=False):
         super(_GridAttentionBlockND, self).__init__()
 
         assert dimension in [2, 3]
@@ -42,19 +44,29 @@ class _GridAttentionBlockND(nn.Module):
             self.upsample_mode = 'bilinear'
         else:
             raise NotImplemented
-
-        # Output transform
-        self.W = nn.Sequential(
-            conv_nd(in_channels=self.in_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0),
-            bn(self.in_channels),
-        )
+        
+        self.gate_flag = gate_flag
 
         # Theta^T * x_ij + Phi^T * gating_signal + bias
         self.theta = conv_nd(in_channels=self.in_channels, out_channels=self.inter_channels,
                              kernel_size=self.sub_sample_kernel_size, stride=self.sub_sample_factor, padding=0, bias=False)
+        if self.gate_flag:
+            self.group_id = uuid.uuid1()
+            self.theta_gate = virtual_gate(self.inter_channels, group_id=self.group_id)
         self.phi = conv_nd(in_channels=self.gating_channels, out_channels=self.inter_channels,
                            kernel_size=1, stride=1, padding=0, bias=True)
+        if self.gate_flag:
+            self.phi_gate = virtual_gate(self.inter_channels, group_id=self.group_id)
         self.psi = conv_nd(in_channels=self.inter_channels, out_channels=1, kernel_size=1, stride=1, padding=0, bias=True)
+        if self.gate_flag:
+            self.psi_gate = virtual_gate(1, prune=False)
+
+        # Output transform
+        W = [conv_nd(in_channels=self.in_channels, out_channels=self.in_channels, kernel_size=1, stride=1, padding=0),
+             bn(self.in_channels)]
+        if self.gate_flag:
+            W.append(virtual_gate(self.in_channels))
+        self.W = nn.Sequential(*W)
 
         # Initialise weights
         for m in self.children():
@@ -88,16 +100,32 @@ class _GridAttentionBlockND(nn.Module):
 
         # theta => (b, c, t, h, w) -> (b, i_c, t, h, w) -> (b, i_c, thw)
         # phi   => (b, g_d) -> (b, i_c)
-        theta_x = self.theta(x)
-        theta_x_size = theta_x.size()
 
-        # g (b, c, t', h', w') -> phi_g (b, i_c, t', h', w')
-        #  Relu(theta_x + phi_g + bias) -> f = (b, i_c, thw) -> (b, i_c, t/s1, h/s2, w/s3)
-        phi_g = F.interpolate(self.phi(g), size=theta_x_size[2:], mode=self.upsample_mode)
-        f = F.relu(theta_x + phi_g, inplace=True)
+        if self.gate_flag:
+            theta_x = self.theta_gate(self.theta(x))
+            theta_x_size = theta_x.size()
 
-        #  psi^T * f -> (b, psi_i_c, t/s1, h/s2, w/s3)
-        sigm_psi_f = F.sigmoid(self.psi(f))
+            # g (b, c, t', h', w') -> phi_g (b, i_c, t', h', w')
+            #  Relu(theta_x + phi_g + bias) -> f = (b, i_c, thw) -> (b, i_c, t/s1, h/s2, w/s3)
+            phi_g = self.phi_gate(self.phi(g))
+            phi_g = F.interpolate(phi_g, size=theta_x_size[2:], mode=self.upsample_mode)
+            f = F.relu(theta_x + phi_g, inplace=True)
+
+            #  psi^T * f -> (b, psi_i_c, t/s1, h/s2, w/s3)
+            sigm_psi_f = F.sigmoid(self.psi_gate(self.psi(f)))
+
+        else:
+            theta_x = self.theta(x)
+            theta_x_size = theta_x.size()
+
+            # g (b, c, t', h', w') -> phi_g (b, i_c, t', h', w')
+            #  Relu(theta_x + phi_g + bias) -> f = (b, i_c, thw) -> (b, i_c, t/s1, h/s2, w/s3)
+            phi_g = self.phi(g)
+            phi_g = F.interpolate(phi_g, size=theta_x_size[2:], mode=self.upsample_mode)
+            f = F.relu(theta_x + phi_g, inplace=True)
+
+            #  psi^T * f -> (b, psi_i_c, t/s1, h/s2, w/s3)
+            sigm_psi_f = F.sigmoid(self.psi(f))
 
         # upsample the attentions and multiply
         sigm_psi_f = F.interpolate(sigm_psi_f, size=input_size[2:], mode=self.upsample_mode)
@@ -114,11 +142,16 @@ class _GridAttentionBlockND(nn.Module):
         # theta => (b, c, t, h, w) -> (b, i_c, t, h, w) -> (b, i_c, thw)
         # phi   => (b, g_d) -> (b, i_c)
         theta_x = self.theta(x)
+        if self.gate_flag:
+            theta_x = self.theta_gate(theta_x)
         theta_x_size = theta_x.size()
 
         # g (b, c, t', h', w') -> phi_g (b, i_c, t', h', w')
         #  Relu(theta_x + phi_g + bias) -> f = (b, i_c, thw) -> (b, i_c, t/s1, h/s2, w/s3)
-        phi_g = F.interpolate(self.phi(g), size=theta_x_size[2:], mode=self.upsample_mode)
+        phi_g = self.phi(g)
+        if self.gate_flag:
+            phi_g = self.phi_gate(phi_g)
+        phi_g = F.interpolate(phi_g, size=theta_x_size[2:], mode=self.upsample_mode)
         f = F.softplus(theta_x + phi_g)
 
         #  psi^T * f -> (b, psi_i_c, t/s1, h/s2, w/s3)
@@ -140,11 +173,16 @@ class _GridAttentionBlockND(nn.Module):
         # theta => (b, c, t, h, w) -> (b, i_c, t, h, w) -> (b, i_c, thw)
         # phi   => (b, g_d) -> (b, i_c)
         theta_x = self.theta(x)
+        if self.gate_flag:
+            theta_x = self.theta_gate(theta_x)
         theta_x_size = theta_x.size()
 
         # g (b, c, t', h', w') -> phi_g (b, i_c, t', h', w')
         #  Relu(theta_x + phi_g + bias) -> f = (b, i_c, thw) -> (b, i_c, t/s1, h/s2, w/s3)
-        phi_g = F.interpolate(self.phi(g), size=theta_x_size[2:], mode=self.upsample_mode)
+        phi_g = self.phi(g)
+        if self.gate_flag:
+            phi_g = self.phi_gate(phi_g)
+        phi_g = F.interpolate(phi_g, size=theta_x_size[2:], mode=self.upsample_mode)
         f = F.relu(theta_x + phi_g, inplace=True)
 
         #  psi^T * f -> (b, psi_i_c, t/s1, h/s2, w/s3)
@@ -161,12 +199,13 @@ class _GridAttentionBlockND(nn.Module):
 
 class GridAttentionBlock3D(_GridAttentionBlockND):
     def __init__(self, in_channels, gating_channels, inter_channels=None, mode='concatenation',
-                 sub_sample_factor=(2,2,2)):
+                 sub_sample_factor=(2,2,2), gate_flag=False):
         super(GridAttentionBlock3D, self).__init__(in_channels,
                                                    inter_channels=inter_channels,
                                                    gating_channels=gating_channels,
                                                    dimension=3, mode=mode,
                                                    sub_sample_factor=sub_sample_factor,
+                                                   gate_flag=gate_flag
                                                    )
 def weights_init_kaiming(m):
     classname = m.__class__.__name__
@@ -276,21 +315,30 @@ class unetConv2(nn.Module):
 
 
 class UnetConv3(nn.Module):
-    def __init__(self, in_size, out_size, is_batchnorm, kernel_size=(3,3,1), padding_size=(1,1,0), init_stride=(1,1,1)):
+    def __init__(self, in_size, out_size, is_batchnorm, kernel_size=(3,3,1), padding_size=(1,1,0), init_stride=(1,1,1), gate_flag=False):
         super(UnetConv3, self).__init__()
 
+        self.gate_flag = gate_flag
+
         if is_batchnorm:
-            self.conv1 = nn.Sequential(nn.Conv3d(in_size, out_size, kernel_size, init_stride, padding_size),
-                                       nn.InstanceNorm3d(out_size),
-                                       nn.ReLU(inplace=True),)
-            self.conv2 = nn.Sequential(nn.Conv3d(out_size, out_size, kernel_size, 1, padding_size),
-                                       nn.InstanceNorm3d(out_size),
-                                       nn.ReLU(inplace=True),)
+            conv1 = [nn.Conv3d(in_size, out_size, kernel_size, init_stride, padding_size),
+                     nn.InstanceNorm3d(out_size),
+                     nn.ReLU(inplace=True)]
+            conv2 = [nn.Conv3d(out_size, out_size, kernel_size, 1, padding_size),
+                     nn.InstanceNorm3d(out_size),
+                     nn.ReLU(inplace=True)]
         else:
-            self.conv1 = nn.Sequential(nn.Conv3d(in_size, out_size, kernel_size, init_stride, padding_size),
-                                       nn.ReLU(inplace=True),)
-            self.conv2 = nn.Sequential(nn.Conv3d(out_size, out_size, kernel_size, 1, padding_size),
-                                       nn.ReLU(inplace=True),)
+            conv1 = [nn.Conv3d(in_size, out_size, kernel_size, init_stride, padding_size),
+                     nn.ReLU(inplace=True)]
+            conv2 = [nn.Conv3d(out_size, out_size, kernel_size, 1, padding_size),
+                     nn.ReLU(inplace=True)]
+        
+        if gate_flag:
+            conv1.append(virtual_gate(out_size))
+            conv2.append(virtual_gate(out_size))
+        
+        self.conv1 = nn.Sequential(*conv1)
+        self.conv2 = nn.Sequential(*conv2)
 
         # initialise the blocks
         for m in self.children():
@@ -369,18 +417,24 @@ class UnetGatingSignal3(nn.Module):
 
 
 class UnetGridGatingSignal3(nn.Module):
-    def __init__(self, in_size, out_size, kernel_size=(1,1,1), is_batchnorm=True):
+    def __init__(self, in_size, out_size, kernel_size=(1,1,1), is_batchnorm=True, gate_flag=False):
         super(UnetGridGatingSignal3, self).__init__()
 
+        self.gate_flag = gate_flag
         if is_batchnorm:
-            self.conv1 = nn.Sequential(nn.Conv3d(in_size, out_size, kernel_size, (1,1,1), (0,0,0)),
-                                       nn.InstanceNorm3d(out_size),
-                                       nn.ReLU(inplace=True),
-                                       )
+            conv1 = [nn.Conv3d(in_size, out_size, kernel_size, (1,1,1), (0,0,0)),
+                     nn.InstanceNorm3d(out_size),
+                     nn.ReLU(inplace=True)
+            ]
         else:
-            self.conv1 = nn.Sequential(nn.Conv3d(in_size, out_size, kernel_size, (1,1,1), (0,0,0)),
-                                       nn.ReLU(inplace=True),
-                                       )
+            conv1 = [nn.Conv3d(in_size, out_size, kernel_size, (1,1,1), (0,0,0)),
+                     nn.ReLU(inplace=True)
+            ]    
+
+        if gate_flag:
+            conv1.append(virtual_gate(out_size))
+        
+        self.conv1 = nn.Sequential(*conv1)
 
         # initialise the blocks
         for m in self.children():
@@ -437,9 +491,9 @@ class UnetUp3(nn.Module):
 
 
 class UnetUp3_CT(nn.Module):
-    def __init__(self, in_size, out_size, is_batchnorm=True):
+    def __init__(self, in_size, out_size, is_batchnorm=True, gate_flag=False):
         super(UnetUp3_CT, self).__init__()
-        self.conv = UnetConv3(in_size + out_size, out_size, is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1))
+        self.conv = UnetConv3(in_size + out_size, out_size, is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1), gate_flag=gate_flag)
         self.up = nn.Upsample(scale_factor=(2, 2, 2), mode='trilinear')
 
         # initialise the blocks
@@ -634,10 +688,15 @@ class HookBasedFeatureExtractor(nn.Module):
 
 
 class UnetDsv3(nn.Module):
-    def __init__(self, in_size, out_size, scale_factor):
+    def __init__(self, in_size, out_size, scale_factor, gate_flag=False):
         super(UnetDsv3, self).__init__()
-        self.dsv = nn.Sequential(nn.Conv3d(in_size, out_size, kernel_size=1, stride=1, padding=0),
-                                 nn.Upsample(scale_factor=scale_factor, mode='trilinear'), )
+        if gate_flag:
+            self.dsv = nn.Sequential(nn.Conv3d(in_size, out_size, kernel_size=1, stride=1, padding=0),
+                                     virtual_gate(out_size),
+                                     nn.Upsample(scale_factor=scale_factor, mode='trilinear'), )
+        else:
+            self.dsv = nn.Sequential(nn.Conv3d(in_size, out_size, kernel_size=1, stride=1, padding=0),
+                                     nn.Upsample(scale_factor=scale_factor, mode='trilinear'), )
 
     def forward(self, input):
         return self.dsv(input)
@@ -645,54 +704,65 @@ class UnetDsv3(nn.Module):
 class Attention_UNet3D(nn.Module):
 
     def __init__(self, feature_scale=4, n_classes=1, is_deconv=True, in_channels=1,
-                 nonlocal_mode='concatenation', attention_dsample=(2, 2, 2), is_batchnorm=True):
+                 nonlocal_mode='concatenation', attention_dsample=(2, 2, 2), is_batchnorm=True, gate_flag=False):
         super(Attention_UNet3D, self).__init__()
         self.is_deconv = is_deconv
         self.in_channels = in_channels
         self.is_batchnorm = is_batchnorm
         self.feature_scale = feature_scale
+        self.gate_flag = gate_flag
 
         filters = [64, 128, 256, 512, 1024]
         filters = [int(x / self.feature_scale) for x in filters]
 
+        ## KD가 수행되는 layer들의 out channel수
+        if gate_flag:
+            self.kd_channels = [filters[f] for f in range(5)] + [filters[f] for f in range(3, -1, -1)]
+
         # downsampling
-        self.conv1 = UnetConv3(self.in_channels, filters[0], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1))
+        self.conv1 = UnetConv3(self.in_channels, filters[0], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1), gate_flag=gate_flag)
         self.maxpool1 = nn.MaxPool3d(kernel_size=(2, 2, 2))
 
-        self.conv2 = UnetConv3(filters[0], filters[1], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1))
+        self.conv2 = UnetConv3(filters[0], filters[1], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1), gate_flag=gate_flag)
         self.maxpool2 = nn.MaxPool3d(kernel_size=(2, 2, 2))
 
-        self.conv3 = UnetConv3(filters[1], filters[2], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1))
+        self.conv3 = UnetConv3(filters[1], filters[2], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1), gate_flag=gate_flag)
         self.maxpool3 = nn.MaxPool3d(kernel_size=(2, 2, 2))
 
-        self.conv4 = UnetConv3(filters[2], filters[3], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1))
+        self.conv4 = UnetConv3(filters[2], filters[3], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1), gate_flag=gate_flag)
         self.maxpool4 = nn.MaxPool3d(kernel_size=(2, 2, 2))
 
-        self.center = UnetConv3(filters[3], filters[4], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1))
-        self.gating = UnetGridGatingSignal3(filters[4], filters[4], kernel_size=(1, 1, 1), is_batchnorm=self.is_batchnorm)
+        self.center = UnetConv3(filters[3], filters[4], self.is_batchnorm, kernel_size=(3,3,3), padding_size=(1,1,1), gate_flag=gate_flag)
+        self.gating = UnetGridGatingSignal3(filters[4], filters[4], kernel_size=(1, 1, 1), is_batchnorm=self.is_batchnorm, gate_flag=gate_flag)
 
-        # attention blocks
-        self.attentionblock2 = MultiAttentionBlock(in_size=filters[1], gate_size=filters[2], inter_size=filters[1],
-                                                   nonlocal_mode=nonlocal_mode, sub_sample_factor= attention_dsample)
-        self.attentionblock3 = MultiAttentionBlock(in_size=filters[2], gate_size=filters[3], inter_size=filters[2],
-                                                   nonlocal_mode=nonlocal_mode, sub_sample_factor= attention_dsample)
+        # attention blocks & upsampling
         self.attentionblock4 = MultiAttentionBlock(in_size=filters[3], gate_size=filters[4], inter_size=filters[3],
-                                                   nonlocal_mode=nonlocal_mode, sub_sample_factor= attention_dsample)
-
-        # upsampling
-        self.up_concat4 = UnetUp3_CT(filters[4], filters[3], is_batchnorm)
-        self.up_concat3 = UnetUp3_CT(filters[3], filters[2], is_batchnorm)
-        self.up_concat2 = UnetUp3_CT(filters[2], filters[1], is_batchnorm)
-        self.up_concat1 = UnetUp3_CT(filters[1], filters[0], is_batchnorm)
+                                                   nonlocal_mode=nonlocal_mode, sub_sample_factor= attention_dsample, gate_flag=gate_flag)
+        self.up_concat4 = UnetUp3_CT(filters[4], filters[3], is_batchnorm, gate_flag=gate_flag)
+        
+        self.attentionblock3 = MultiAttentionBlock(in_size=filters[2], gate_size=filters[3], inter_size=filters[2],
+                                                   nonlocal_mode=nonlocal_mode, sub_sample_factor= attention_dsample, gate_flag=gate_flag)
+        self.up_concat3 = UnetUp3_CT(filters[3], filters[2], is_batchnorm, gate_flag=gate_flag)
+        
+        self.attentionblock2 = MultiAttentionBlock(in_size=filters[1], gate_size=filters[2], inter_size=filters[1],
+                                                   nonlocal_mode=nonlocal_mode, sub_sample_factor= attention_dsample, gate_flag=gate_flag)
+        self.up_concat2 = UnetUp3_CT(filters[2], filters[1], is_batchnorm, gate_flag=gate_flag)
+        self.up_concat1 = UnetUp3_CT(filters[1], filters[0], is_batchnorm, gate_flag=gate_flag)
+        
+        
 
         # deep supervision
-        self.dsv4 = UnetDsv3(in_size=filters[3], out_size=n_classes, scale_factor=8)
-        self.dsv3 = UnetDsv3(in_size=filters[2], out_size=n_classes, scale_factor=4)
-        self.dsv2 = UnetDsv3(in_size=filters[1], out_size=n_classes, scale_factor=2)
+        self.dsv4 = UnetDsv3(in_size=filters[3], out_size=n_classes, scale_factor=8, gate_flag=gate_flag)
+        self.dsv3 = UnetDsv3(in_size=filters[2], out_size=n_classes, scale_factor=4, gate_flag=gate_flag)
+        self.dsv2 = UnetDsv3(in_size=filters[1], out_size=n_classes, scale_factor=2, gate_flag=gate_flag)
         self.dsv1 = nn.Conv3d(in_channels=filters[0], out_channels=n_classes, kernel_size=1)
+        if gate_flag:
+            self.dsv1_gate = virtual_gate(n_classes)
 
         # final conv (without any concat)
         self.final = nn.Conv3d(n_classes*4, n_classes, 1)
+        if gate_flag:
+            self.final_gate = virtual_gate(n_classes, prune=False)
 
         # initialise weights
         for m in self.modules():
@@ -734,9 +804,11 @@ class Attention_UNet3D(nn.Module):
         dsv3 = self.dsv3(up3)
         dsv2 = self.dsv2(up2)
         dsv1 = self.dsv1(up1)
+        if self.gate_flag:
+            dsv1 = self.dsv1_gate(dsv1)
         final = self.final(torch.cat([dsv1,dsv2,dsv3,dsv4], dim=1))
 
-        return final
+        return final, [conv1, conv2, conv3, conv4, gating, up4, up3, up2, up1]
 
 
     @staticmethod
@@ -747,18 +819,20 @@ class Attention_UNet3D(nn.Module):
 
 
 class MultiAttentionBlock(nn.Module):
-    def __init__(self, in_size, gate_size, inter_size, nonlocal_mode, sub_sample_factor):
+    def __init__(self, in_size, gate_size, inter_size, nonlocal_mode, sub_sample_factor, gate_flag=False):
         super(MultiAttentionBlock, self).__init__()
         self.gate_block_1 = GridAttentionBlock3D(in_channels=in_size, gating_channels=gate_size,
                                                  inter_channels=inter_size, mode=nonlocal_mode,
-                                                 sub_sample_factor= sub_sample_factor)
+                                                 sub_sample_factor= sub_sample_factor, gate_flag=gate_flag)
         self.gate_block_2 = GridAttentionBlock3D(in_channels=in_size, gating_channels=gate_size,
                                                  inter_channels=inter_size, mode=nonlocal_mode,
-                                                 sub_sample_factor=sub_sample_factor)
-        self.combine_gates = nn.Sequential(nn.Conv3d(in_size*2, in_size, kernel_size=1, stride=1, padding=0),
-                                           nn.BatchNorm3d(in_size),
-                                           nn.ReLU(inplace=True)
-                                           )
+                                                 sub_sample_factor=sub_sample_factor, gate_flag=gate_flag)
+        combine_gates = [nn.Conv3d(in_size*2, in_size, kernel_size=1, stride=1, padding=0),
+                         nn.BatchNorm3d(in_size),
+                         nn.ReLU(inplace=True)]
+        if gate_flag:
+            combine_gates.append(virtual_gate(in_size))
+        self.combine_gates = nn.Sequential(*combine_gates)
 
         # initialise the blocks
         for m in self.children():

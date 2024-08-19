@@ -51,11 +51,12 @@ class ModelConverter:
             print(f" Verfiy the onnx model in {onnx_path} ...")
             import onnx
             import onnxruntime
+
             def to_numpy(tensor):
-                return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
+                    return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
             # get torch out
-            torch_out = self.model(dummy_input)
+            torch_out, _ = self.model(dummy_input)
 
             onnx_model = onnx.load(onnx_path)
             onnx.checker.check_model(onnx_model)

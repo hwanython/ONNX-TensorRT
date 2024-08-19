@@ -1,10 +1,11 @@
 net_model: AttentionUnet3D
-torch_model_path: ./work/best.pth
-onnx_model_path: ./work/best.onnx
-trt_model_path: ./work/best.trt
-task: onnx2trt # torch2onnx or onnx2trt or torch2trt
+torch_model_path: ./work/FT_pruned_ct_nerve_0.758.pth
+onnx_model_path: ./work/FT_pruned_ct_nerve_0.758.onnx
+trt_model_path: ./work/FT_pruned_ct_nerve_0.758.trt
+task: torch2onnx # torch2onnx or onnx2trt or torch2trt
 use_verify: True
 use_fp16: False
 in_ch: 1
 num_classes: 1
 input_shape: !!python/tuple [64, 288, 288]
+is_pruned: True

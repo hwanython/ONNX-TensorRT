@@ -1,4 +1,5 @@
 from libs.converter.ModelConverter import *
+from libs.pruning.prune_utils import melt
 
 class TaskFactory:
     def __init__(self, config, debug=False):
@@ -9,11 +10,16 @@ class TaskFactory:
         self.num_classes = config.num_classes
         self.in_ch = config.in_ch
         self._input = (self.num_classes, self.in_ch, *config.input_shape)
+        self.is_pruned = config.is_pruned
 
     def run(self):
         if self.name == 'torch2onnx':
             model = ModelFactory(self.model, self.num_classes, self.in_ch).setup()
             state_dict = torch.load(self.config.torch_model_path)
+            if self.is_pruned:
+                self.hard_vector = state_dict['hard_vector']
+                melt(model_name=self.config.net_model, model=model, hard_vector=self.hard_vector)
+
             model.load_state_dict(state_dict['state_dict'], strict=True)
             converter = ModelConverter(torch_model = model, 
                                        input_shape = self._input, 
