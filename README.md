@@ -65,7 +65,7 @@ Run the script:
 python converter.py -c path/to/config.yaml
 ```
 #### Convert ONNX to TensorRT
-If you have already converted your model to ONNX and want to convert it to TensorRT, ensure your `task` in `config.yaml`` is set to `onnx2trt`. Then, run the converter.py script again:
+If you have already converted your model to ONNX and want to convert it to TensorRT, ensure your `task` in `config.yaml` is set to `onnx2trt`. Then, run the converter.py script again:
 ```bash
 python converter.py -c path/to/config.yaml
 ```
