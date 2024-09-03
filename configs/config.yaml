@@ -1,11 +1,21 @@
 net_model: AttentionUnet3D
-torch_model_path: ./work/FT_pruned_ct_nerve_0.758.pth
-onnx_model_path: ./work/FT_pruned_ct_nerve_0.758.onnx
-trt_model_path: ./work/FT_pruned_ct_nerve_0.758.trt
-task: torch2onnx # torch2onnx or onnx2trt or torch2trt
+torch_model_path: ./work/AttentionUnet3D-teeth-pruned-0.880-CT_ToothSeg_v1.1.1.pth
+onnx_model_path: ./work/AttentionUnet3D-teeth-pruned-0.880-CT_ToothSeg_v1.1.1.onnx
+trt_model_path: ./work/AttentionUnet3D-teeth-pruned-0.880-CT_ToothSeg_v1.1.1.trt
+task: onnx2trt # torch2onnx or onnx2trt or torch2trt
 use_verify: True
 use_fp16: False
+batch_size: 1
 in_ch: 1
-num_classes: 1
-input_shape: !!python/tuple [64, 288, 288]
+num_classes: 33
+input_shape: !!python/tuple [192, 128, 128]
 is_pruned: True
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,7 @@
+Loading the config file...
+Profiling the model...
+Starting the task: cpu
+Starting the task: cuda
+  device  total_memory  average_time
+0    cpu   1123.620945      2.338724
+1   cuda   1123.620945      0.298757

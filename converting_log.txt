@@ -1,16 +1,16 @@
 Project Task: converter
 Loading the config file...
-Task: torch2onnx
-Starting the task: torch2onnx
-Message in the task: torch2onnx, 
+Task: onnx2trt
+Starting the task: onnx2trt
+Message in the task: onnx2trt, 
 Not equal to tolerance rtol=0.01, atol=1e-08
 
-Mismatched elements: 18 / 5308416 (0.000339%)
-Max absolute difference: 0.01518726
-Max relative difference: 8.529737
- x: array([[[[[ -70.31884 ,  -70.30941 ,  -70.39437 , ...,  -98.190796,
-           -100.11388 , -100.12914 ],
-          [ -70.3103  ,  -67.54265 ,  -68.61706 , ...,  -86.558464,...
- y: array([[[[[ -70.31886 ,  -70.30943 ,  -70.394394, ...,  -98.190414,
-           -100.11379 , -100.12906 ],
-          [ -70.310326,  -67.541664,  -68.61626 , ...,  -86.55492 ,...
+Mismatched elements: 618973 / 103809024 (0.596%)
+Max absolute difference: 0.02445984
+Max relative difference: 6300.788
+ x: array([[[[[10.319552, 10.165998, 10.06437 , ...,  9.345081,  9.832371,
+           10.496737],
+          [10.100925,  9.772062,  9.586178, ...,  8.936399,  9.252875,...
+ y: array([[[[[10.319377, 10.165952, 10.064265, ...,  9.34462 ,  9.831906,
+           10.496292],
+          [10.100883,  9.771896,  9.58601 , ...,  8.936022,  9.252509,...

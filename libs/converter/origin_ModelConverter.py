@@ -3,7 +3,6 @@ import sys
 import numpy as np
 import tensorrt as trt
 import pycuda.driver as cuda
-
 import pycuda.autoinit
 import torch
 sys.path.append(os.path.dirname(os.path.abspath(os.path.dirname(__file__))))
@@ -21,13 +20,12 @@ class HostDeviceMem(object):
         return self.__str__()
 
 class ModelConverter:
-    def __init__(self, torch_model, input_shape, output_shape, use_verify=True, use_fp16=False,
+    def __init__(self, torch_model, input_shape, use_verify=True, use_fp16=False,
                  onnx_model_path=None, trt_model_path=None):
         self.model = torch_model  # PyTorch model with eval mode
         self.onnx_model_path = onnx_model_path  # path to save the converted onnx model
         self.trt_model_path = trt_model_path
-        self.input_shape = input_shape  # input shape of the model (B, Ch, H, W, D)
-        self.output_shape = output_shape # output shape of the model (B, Cls, H, W, D)
+        self.input_shape = input_shape  # input shape of the model (B, C, H, W, D)
         self.use_verify = use_verify  # verify the converted model
         self.rtol = 1e-02 # fp16은 atol=1e-03 정도로 설정 차후 use_fp16=True로 설정할 경우 수정
         self.atol = 1e-08
@@ -48,20 +46,6 @@ class ModelConverter:
                           output_names=['output'],  # 모델의 출력값을 가리키는 이름
                           )
         print(f"Model successfully converted to ONNX format and saved to {onnx_path}")
-        print(f"Starting onnx output node trimming ... {onnx_path}")
-        # output node trimming
-        import onnx
-        onnx_model = onnx.load(onnx_path)
-        for _output in onnx_model.graph.output:
-            if _output.name == 'output':
-                final = _output
-        
-        for _ in range(len(onnx_model.graph.output)):
-            onnx_model.graph.output.pop(0)
-        
-        onnx_model.graph.output.insert(1, final)
-        onnx.save(onnx_model, onnx_path)
-
 
         if self.use_verify:
             print(f" Verfiy the onnx model in {onnx_path} ...")
@@ -171,10 +155,10 @@ class ModelConverter:
         context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
 
         # Transfer predictions back from GPU
-        cuda.memcpy_dtoh_async(outputs[0].host, outputs[0].device, stream)
+        cuda.memcpy_dtoh_async(outputs[-1].host, outputs[-1].device, stream)
         stream.synchronize()
         # TODO: set one output only with onnx model
-        return outputs[0].host.reshape(self.output_shape)
+        return outputs[-1].host.reshape(engine.get_binding_shape(10))
 
 # Usage Example
 if __name__ == '__main__':
